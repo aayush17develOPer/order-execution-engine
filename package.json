@@ -1,0 +1,19 @@
+{
+  "name": "order-execution-engine",
+  "version": "1.0.0",
+  "description": "DEX Order Execution Engine with WebSocket Updates",
+  "main": "dist/app.js",
+  "scripts": {
+    "dev": "tsx watch src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "migrate": "node -r tsx/cjs src/config/migrate.ts",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "keywords": ["solana", "dex", "trading", "websocket"],
+  "author": "",
+  "license": "MIT"
+}
