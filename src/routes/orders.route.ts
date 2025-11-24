@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { OrderExecutionService } from '../services/order-execution.service';
 import { OrderQueueService } from '../services/order-queue.service';
 import { orderEvents } from '../services/order-events.service';
-import { OrderType } from '../models/order.model';
+import { OrderType, OrderStatus } from '../models/order.model';
 
 const createOrderSchema = z.object({
   orderType: z.nativeEnum(OrderType),
@@ -22,6 +22,11 @@ export async function orderRoutes(fastify: FastifyInstance) {
     try {
       const body = createOrderSchema.parse(request.body);
       const order = await executionService.createOrder(body);
+
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.PENDING, {
+        message: 'Order received, queued for processing...',
+      });
+
       await queueService.addOrder(order.id, order);
 
       return {
@@ -39,12 +44,10 @@ export async function orderRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // WebSocket endpoint using EventEmitter
   fastify.register(async function (fastify) {
     fastify.get('/api/orders/:orderId/stream', { websocket: true }, (socket, req) => {
       const { orderId } = req.params as { orderId: string };
 
-      // Send connection confirmation
       socket.send(
         JSON.stringify({
           type: 'connected',
@@ -54,7 +57,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
         })
       );
 
-      // Listen for order updates via EventEmitter
       const updateHandler = (update: any) => {
         fastify.log.info({ orderId, update }, 'Sending update via WebSocket');
         socket.send(
@@ -67,7 +69,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
 
       orderEvents.on(`order:${orderId}`, updateHandler);
 
-      // Handle client messages
       socket.on('message', (message: Buffer) => {
         try {
           const data = JSON.parse(message.toString());
@@ -84,7 +85,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
         }
       });
 
-      // Cleanup on disconnect
       socket.on('close', () => {
         fastify.log.info({ orderId }, 'WebSocket connection closed');
         orderEvents.off(`order:${orderId}`, updateHandler);
@@ -92,6 +92,67 @@ export async function orderRoutes(fastify: FastifyInstance) {
 
       socket.on('error', (error: Error) => {
         fastify.log.error({ orderId, error }, 'WebSocket error');
+      });
+    });
+  });
+
+  fastify.register(async function (fastify) {
+    fastify.get('/api/orders/stream/all', { websocket: true }, (socket, req) => {
+      fastify.log.info('Client connected to global order stream');
+      console.log('🌐 Global WebSocket connection established');
+
+      socket.send(
+        JSON.stringify({
+          type: 'connected',
+          timestamp: new Date().toISOString(),
+          message: 'Connected to global order stream. Listening for all order updates...',
+        })
+      );
+
+      const globalUpdateHandler = (update: any) => {
+        console.log(
+          '🎯 Global handler received update:',
+          update.orderId.substring(0, 8),
+          update.status
+        );
+        fastify.log.info({ update }, 'Broadcasting update to global stream');
+        socket.send(
+          JSON.stringify({
+            type: 'status_update',
+            ...update,
+          })
+        );
+      };
+
+      orderEvents.on('orderUpdate', globalUpdateHandler);
+      console.log('✅ Subscribed to global "orderUpdate" event');
+      console.log('📡 Current global listeners:', orderEvents.listenerCount('orderUpdate'));
+
+      socket.on('message', (message: Buffer) => {
+        try {
+          const data = JSON.parse(message.toString());
+          if (data.type === 'ping') {
+            socket.send(
+              JSON.stringify({
+                type: 'pong',
+                timestamp: new Date().toISOString(),
+              })
+            );
+          }
+        } catch (error) {
+          fastify.log.error({ error }, 'Failed to parse WebSocket message');
+        }
+      });
+
+      socket.on('close', () => {
+        console.log('🔌 Global WebSocket disconnected, removing listener');
+        fastify.log.info('Global order stream disconnected');
+        orderEvents.off('orderUpdate', globalUpdateHandler);
+        console.log('📡 Remaining global listeners:', orderEvents.listenerCount('orderUpdate'));
+      });
+
+      socket.on('error', (error: Error) => {
+        fastify.log.error({ error }, 'Global WebSocket error');
       });
     });
   });

@@ -7,7 +7,7 @@
     <style>
       body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
         padding: 20px;
         background: #f5f5f5;
@@ -66,6 +66,7 @@
         border-radius: 3px;
         font-weight: bold;
         margin: 2px;
+        font-size: 11px;
       }
       .status.pending {
         background: #ffc107;
@@ -121,6 +122,27 @@
         font-size: 14px;
         margin-top: 5px;
       }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+        background: white;
+      }
+      th {
+        background: #f0f0f0;
+        padding: 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+        font-weight: 600;
+      }
+      td {
+        padding: 10px;
+        border: 1px solid #ddd;
+        font-size: 13px;
+      }
+      tr:hover {
+        background: #f9f9f9;
+      }
     </style>
   </head>
   <body>
@@ -148,14 +170,35 @@
         <div id="order-result" class="log" style="margin-top: 10px; min-height: 100px"></div>
       </div>
 
-      <!-- WebSocket Monitor -->
+      <!-- Multi-Order WebSocket Monitor -->
       <div class="section">
-        <h2>3. WebSocket Status Monitor</h2>
-        <input type="text" id="wsOrderId" placeholder="Enter Order ID" style="width: 300px" />
-        <button onclick="connectWebSocket()" id="wsBtn">Connect WebSocket</button>
-        <button onclick="disconnectWebSocket()" disabled id="wsDisconnectBtn">Disconnect</button>
+        <h2>3. Multi-Order WebSocket Monitor</h2>
+        <button onclick="connectGlobalStream()" id="globalWsBtn">Connect to All Orders</button>
+        <button onclick="disconnectAllWebSockets()">Disconnect All</button>
+        <button onclick="clearOrdersTable()">Clear Table</button>
         <div id="ws-status" style="margin-top: 10px; color: #666"></div>
-        <div id="ws-log" class="log" style="margin-top: 10px; min-height: 200px"></div>
+
+        <!-- Orders Table -->
+        <table style="margin-top: 15px">
+          <thead>
+            <tr>
+              <th style="width: 60px">Order #</th>
+              <th style="width: 200px">Order ID</th>
+              <th style="width: 100px">Status</th>
+              <th>Message</th>
+              <th style="width: 100px">Time</th>
+            </tr>
+          </thead>
+          <tbody id="orders-table-body">
+            <tr>
+              <td colspan="5" style="text-align: center; padding: 20px; color: #888">
+                No orders yet. Create orders to see live updates.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div id="ws-log" class="log" style="margin-top: 10px; min-height: 150px"></div>
       </div>
 
       <!-- Get Order Details -->
@@ -179,7 +222,10 @@
     <script>
       const API_BASE = 'http://localhost:3000';
       let ws = null;
+      let globalWs = null;
       let metricsInterval = null;
+      const activeWebSockets = new Map();
+      const ordersMap = new Map();
 
       function log(elementId, message, color = '#00ff00') {
         const el = document.getElementById(elementId);
@@ -237,15 +283,13 @@
           log('order-result', `✅ Order created in ${duration}ms`, '#00ff00');
           log('order-result', JSON.stringify(data, null, 2), '#00ffff');
 
-          // Auto-populate WebSocket field
+          // Auto-populate fields
           if (data.orderId) {
-            document.getElementById('wsOrderId').value = data.orderId;
             document.getElementById('getOrderId').value = data.orderId;
-            log(
-              'order-result',
-              `💡 Order ID auto-filled. Click "Connect WebSocket" to watch status updates!`,
-              '#ffff00'
-            );
+            log('order-result', `💡 Order ID: ${data.orderId}`, '#ffff00');
+
+            // Add to orders map
+            addOrderToTable(data.orderId);
           }
         } catch (error) {
           const duration = (performance.now() - start).toFixed(2);
@@ -255,6 +299,16 @@
 
       async function createMultipleOrders() {
         clearLog('order-result');
+
+        // AUTO-CONNECT WebSocket FIRST
+        if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
+          log('order-result', '🔌 Auto-connecting WebSocket first...', '#ffff00');
+          connectGlobalStream();
+
+          // Wait 500ms for WebSocket to establish
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
         log('order-result', '🚀 Creating 5 concurrent orders...', '#ffff00');
 
         const promises = [];
@@ -283,64 +337,148 @@
           log('order-result', `✅ All 5 orders submitted in ${duration}ms`, '#00ff00');
           results.forEach((data, i) => {
             log('order-result', `Order ${i + 1}: ${data.orderId}`, '#00ffff');
+            if (data.orderId) {
+              addOrderToTable(data.orderId);
+            }
           });
+
+          log('order-result', `💡 Watch the table below for real-time updates!`, '#ffff00');
         } catch (error) {
           log('order-result', `❌ Error: ${error.message}`, '#ff0000');
         }
       }
 
-      function connectWebSocket() {
-        const orderId = document.getElementById('wsOrderId').value;
-        if (!orderId) {
-          alert('Please enter an Order ID');
+      function addOrderToTable(orderId) {
+        if (!ordersMap.has(orderId)) {
+          ordersMap.set(orderId, {
+            orderNum: ordersMap.size + 1,
+            orderId: orderId,
+            status: 'pending',
+            message: 'Order created, waiting for processing...',
+            timestamp: new Date().toLocaleTimeString(),
+          });
+          renderOrdersTable();
+        }
+      }
+
+      function connectGlobalStream() {
+        // Prevent duplicate connections
+        if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+          log('ws-log', '⚠️ Already connected to global stream', '#ffff00');
           return;
         }
 
+        // Close existing connection if any
+        if (globalWs) {
+          globalWs.close();
+        }
+
         clearLog('ws-log');
-        log('ws-log', `🔌 Connecting to WebSocket for order: ${orderId}...`, '#ffff00');
+        log('ws-log', '🔌 Connecting to global order stream...', '#ffff00');
 
-        ws = new WebSocket(`ws://localhost:3000/api/orders/${orderId}/stream`);
+        globalWs = new WebSocket(`ws://localhost:3000/api/orders/stream/all`);
 
-        ws.onopen = () => {
-          log('ws-log', '✅ WebSocket connected!', '#00ff00');
+        globalWs.onopen = () => {
+          log('ws-log', '✅ Global WebSocket connected! Listening to all orders...', '#00ff00');
           document.getElementById('ws-status').innerHTML =
-            '<strong style="color: green;">● Connected</strong>';
-          document.getElementById('wsBtn').disabled = true;
-          document.getElementById('wsDisconnectBtn').disabled = false;
+            '<strong style="color: green;">● Global Stream Active</strong>';
         };
 
-        ws.onmessage = event => {
+        globalWs.onmessage = event => {
           const data = JSON.parse(event.data);
-          const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
 
-          if (data.status) {
+          if (data.type === 'status_update' && data.orderId) {
+            updateOrderTable(data);
+            const shortId = data.orderId.substring(0, 8);
             log(
               'ws-log',
-              `📊 Status: <span class="status ${data.status}">${data.status.toUpperCase()}</span>`,
+              `📊 [${shortId}...] → <span class="status ${data.status}">${data.status.toUpperCase()}</span>`,
               '#00ffff'
             );
+            if (data.data && data.data.message) {
+              log('ws-log', `   ${data.data.message}`, '#888');
+            }
           }
-          log('ws-log', JSON.stringify(data, null, 2), '#00ffff');
         };
 
-        ws.onerror = error => {
-          log('ws-log', `❌ WebSocket error: ${error}`, '#ff0000');
-        };
-
-        ws.onclose = () => {
-          log('ws-log', '🔌 WebSocket disconnected', '#ffff00');
+        globalWs.onclose = () => {
+          log('ws-log', '🔌 Global WebSocket disconnected', '#ffff00');
           document.getElementById('ws-status').innerHTML =
             '<strong style="color: red;">● Disconnected</strong>';
-          document.getElementById('wsBtn').disabled = false;
-          document.getElementById('wsDisconnectBtn').disabled = true;
+          globalWs = null;
+        };
+
+        globalWs.onerror = error => {
+          log('ws-log', '❌ WebSocket error', '#ff0000');
         };
       }
 
-      function disconnectWebSocket() {
+      function updateOrderTable(data) {
+        const { orderId, status, data: eventData } = data;
+
+        if (!ordersMap.has(orderId)) {
+          ordersMap.set(orderId, {
+            orderNum: ordersMap.size + 1,
+            orderId: orderId,
+            status: status,
+            message: eventData?.message || '',
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        } else {
+          const order = ordersMap.get(orderId);
+          order.status = status;
+          order.message = eventData?.message || '';
+          order.timestamp = new Date().toLocaleTimeString();
+        }
+
+        renderOrdersTable();
+      }
+
+      function renderOrdersTable() {
+        const tbody = document.getElementById('orders-table-body');
+
+        if (ordersMap.size === 0) {
+          tbody.innerHTML =
+            '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #888;">No orders yet. Create orders to see live updates.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = Array.from(ordersMap.values())
+          .map(
+            order => `
+                    <tr>
+                        <td style="text-align: center;">${order.orderNum}</td>
+                        <td style="font-family: monospace; font-size: 11px;">${order.orderId.substring(0, 24)}...</td>
+                        <td><span class="status ${order.status}">${order.status.toUpperCase()}</span></td>
+                        <td style="font-size: 12px;">${order.message}</td>
+                        <td style="font-size: 11px; color: #666;">${order.timestamp}</td>
+                    </tr>
+                `
+          )
+          .join('');
+      }
+
+      function clearOrdersTable() {
+        ordersMap.clear();
+        renderOrdersTable();
+        clearLog('ws-log');
+      }
+
+      function disconnectAllWebSockets() {
+        if (globalWs) {
+          globalWs.close();
+          globalWs = null;
+        }
         if (ws) {
           ws.close();
           ws = null;
         }
+        activeWebSockets.forEach(socket => socket.close());
+        activeWebSockets.clear();
+
+        document.getElementById('ws-status').innerHTML =
+          '<strong style="color: #888;">● Not Connected</strong>';
+        log('ws-log', '🔌 All WebSockets disconnected', '#888');
       }
 
       async function getOrder() {

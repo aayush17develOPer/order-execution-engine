@@ -101,6 +101,12 @@ export class OrderExecutionService {
     const updates: StatusUpdate[] = [];
 
     try {
+      // Emit PENDING first
+      await sleep(500); // Give WebSocket time to connect
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.PENDING, {
+        message: 'Order received, starting processing...',
+      });
+
       // Stage 1: ROUTING
       logger.info({ orderId: order.id }, 'Stage 1: Starting DEX routing...');
       await this.updateOrderStatus(order.id, OrderStatus.ROUTING);
@@ -108,7 +114,7 @@ export class OrderExecutionService {
         message: 'Fetching quotes from Raydium and Meteora...',
       });
 
-      await sleep(800); // 800ms for routing
+      await sleep(1500);
 
       const { bestQuote, allQuotes } = await this.dexRouter.getBestQuote(
         order.tokenIn,
@@ -116,25 +122,32 @@ export class OrderExecutionService {
         order.amountIn
       );
 
-      logger.info({ orderId: order.id, selectedDex: bestQuote.dex }, 'Routing complete');
+      logger.info(
+        {
+          orderId: order.id,
+          selectedDex: bestQuote.dex,
+        },
+        'Routing complete'
+      );
 
       // Stage 2: BUILDING
       logger.info({ orderId: order.id }, 'Stage 2: Building transaction...');
-      await sleep(700); // 700ms for building
+      await sleep(1200);
       await this.updateOrderStatus(order.id, OrderStatus.BUILDING, {
         selectedDex: bestQuote.dex,
       });
       orderEvents.emitOrderUpdate(order.id, OrderStatus.BUILDING, {
         selectedDex: bestQuote.dex,
-        message: `Building transaction on ${bestQuote.dex}...`,
+        price: bestQuote.price,
+        message: `Building transaction on ${bestQuote.dex}... Price: ${bestQuote.price.toFixed(2)} USDC`,
       });
 
       // Stage 3: SUBMITTED
       logger.info({ orderId: order.id }, 'Stage 3: Submitting to blockchain...');
-      await sleep(600); // 600ms for submission
+      await sleep(1000);
       await this.updateOrderStatus(order.id, OrderStatus.SUBMITTED);
       orderEvents.emitOrderUpdate(order.id, OrderStatus.SUBMITTED, {
-        message: 'Transaction submitted to Solana network...',
+        message: 'Transaction submitted to Solana network, awaiting confirmation...',
       });
 
       // Stage 4: EXECUTION
@@ -159,10 +172,16 @@ export class OrderExecutionService {
         txHash: execution.txHash,
         executionPrice: execution.executedPrice,
         amountOut: execution.amountOut,
-        message: 'Order executed successfully!',
+        message: `✅ Order executed successfully! Got ${execution.amountOut.toFixed(2)} USDC`,
       });
 
-      logger.info({ orderId: order.id, txHash: execution.txHash }, 'Order confirmed');
+      logger.info(
+        {
+          orderId: order.id,
+          txHash: execution.txHash,
+        },
+        'Order confirmed'
+      );
 
       updates.push({
         orderId: order.id,

@@ -5,7 +5,8 @@ class OrderEventsService extends EventEmitter {
 
   private constructor() {
     super();
-    this.setMaxListeners(100); // Support many concurrent orders
+    this.setMaxListeners(1000);
+    console.log('🎯 OrderEventsService initialized');
   }
 
   static getInstance(): OrderEventsService {
@@ -16,12 +17,24 @@ class OrderEventsService extends EventEmitter {
   }
 
   emitOrderUpdate(orderId: string, status: string, data?: any) {
-    this.emit(`order:${orderId}`, {
+    const payload = {
       orderId,
       status,
       timestamp: new Date().toISOString(),
       data,
-    });
+    };
+
+    console.log(`🔔 EMITTING EVENT for order: ${orderId.substring(0, 8)}... status: ${status}`);
+    console.log(`📡 'orderUpdate' listener count:`, this.listenerCount('orderUpdate'));
+    console.log(`📡 'order:${orderId}' listener count:`, this.listenerCount(`order:${orderId}`));
+
+    // Emit to specific order channel (for single order WebSocket)
+    this.emit(`order:${orderId}`, payload);
+
+    // ALSO emit to global channel (for multi-order WebSocket)
+    this.emit('orderUpdate', payload);
+
+    console.log('✅ Events emitted to both channels');
   }
 }
 

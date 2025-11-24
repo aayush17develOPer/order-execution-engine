@@ -1,4 +1,4 @@
-import { Queue, QueueEvents } from 'bullmq';
+import { Queue, Job, QueueEvents } from 'bullmq';
 import { redisConnection } from '../config/redis';
 import { Order, OrderType } from '../models/order.model';
 
@@ -12,38 +12,49 @@ export class OrderQueueService {
   private queueEvents: QueueEvents;
 
   constructor() {
-    this.queue = new Queue<OrderJobData>('order-execution', { connection: redisConnection });
+    this.queue = new Queue<OrderJobData>('order-execution', {
+      connection: redisConnection.duplicate(),
+    });
+
     this.queueEvents = new QueueEvents('order-execution', {
       connection: redisConnection.duplicate(),
     });
   }
 
-  async addOrder(orderId: string, orderData: Order) {
+  async addOrder(orderId: string, orderData: Order): Promise<Job<OrderJobData>> {
+    const priority = orderData.orderType === OrderType.MARKET ? 1 : 2;
+
     return this.queue.add(
-      'process-order',
+      'execute-order',
       { orderId, orderData },
       {
         jobId: orderId,
-        priority: orderData.orderType === OrderType.MARKET ? 1 : 2,
+        priority,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: false,
+        removeOnFail: false,
+        delay: 1000,
       }
     );
   }
 
-  getQueue() {
-    return this.queue;
-  }
-  getQueueEvents() {
-    return this.queueEvents;
+  async getMetrics() {
+    const counts = await this.queue.getJobCounts(
+      'waiting',
+      'active',
+      'completed',
+      'failed',
+      'delayed'
+    );
+    return counts;
   }
 
-  async getMetrics() {
-    const [waiting, active, completed, failed, delayed] = await Promise.all([
-      this.queue.getWaitingCount(),
-      this.queue.getActiveCount(),
-      this.queue.getCompletedCount(),
-      this.queue.getFailedCount(),
-      this.queue.getDelayedCount(),
-    ]);
-    return { waiting, active, completed, failed, delayed };
+  getQueue(): Queue<OrderJobData> {
+    return this.queue;
+  }
+
+  getQueueEvents(): QueueEvents {
+    return this.queueEvents;
   }
 }
