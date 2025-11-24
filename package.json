@@ -7,7 +7,8 @@
     "start": "node dist/app.js",
     "build": "tsc",
     "dev": "tsx watch src/app.ts",
-    "test": "jest --coverage"
+    "test": "jest --coverage",
+    "migrate": "psql $DATABASE_URL -f migrations/001_create_orders_table.sql"
   },
   "keywords": [
     "solana",
