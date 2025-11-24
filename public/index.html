@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Order Execution Engine - Test</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+      }
+      .section {
+        margin-bottom: 30px;
+        padding: 20px;
+        background: #f9f9f9;
+        border-radius: 4px;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        margin: 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      .log {
+        background: #1e1e1e;
+        color: #00ff00;
+        padding: 15px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        max-height: 400px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      .timestamp {
+        color: #888;
+        margin-right: 10px;
+      }
+      .status {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-weight: bold;
+        margin: 2px;
+      }
+      .status.pending {
+        background: #ffc107;
+        color: #000;
+      }
+      .status.routing {
+        background: #17a2b8;
+        color: white;
+      }
+      .status.building {
+        background: #007bff;
+        color: white;
+      }
+      .status.submitted {
+        background: #6f42c1;
+        color: white;
+      }
+      .status.confirmed {
+        background: #28a745;
+        color: white;
+      }
+      .status.failed {
+        background: #dc3545;
+        color: white;
+      }
+      input {
+        padding: 8px;
+        margin: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        width: 150px;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+      }
+      .metric-card {
+        background: white;
+        padding: 15px;
+        border-radius: 4px;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .metric-value {
+        font-size: 32px;
+        font-weight: bold;
+        color: #007bff;
+      }
+      .metric-label {
+        color: #666;
+        font-size: 14px;
+        margin-top: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🚀 Order Execution Engine Test Dashboard</h1>
+
+      <!-- Health Check -->
+      <div class="section">
+        <h2>1. Health Check</h2>
+        <button onclick="testHealth()">Test Health Endpoint</button>
+        <div id="health-result" class="log" style="margin-top: 10px; min-height: 60px"></div>
+      </div>
+
+      <!-- Create Order -->
+      <div class="section">
+        <h2>2. Create Market Order</h2>
+        <div>
+          <input type="text" id="tokenIn" placeholder="Token In" value="SOL" />
+          <input type="text" id="tokenOut" placeholder="Token Out" value="USDC" />
+          <input type="number" id="amountIn" placeholder="Amount" value="1" step="0.1" />
+          <input type="number" id="slippage" placeholder="Slippage" value="0.01" step="0.01" />
+        </div>
+        <button onclick="createOrder()">Create Order</button>
+        <button onclick="createMultipleOrders()">Create 5 Orders (Concurrent)</button>
+        <div id="order-result" class="log" style="margin-top: 10px; min-height: 100px"></div>
+      </div>
+
+      <!-- WebSocket Monitor -->
+      <div class="section">
+        <h2>3. WebSocket Status Monitor</h2>
+        <input type="text" id="wsOrderId" placeholder="Enter Order ID" style="width: 300px" />
+        <button onclick="connectWebSocket()" id="wsBtn">Connect WebSocket</button>
+        <button onclick="disconnectWebSocket()" disabled id="wsDisconnectBtn">Disconnect</button>
+        <div id="ws-status" style="margin-top: 10px; color: #666"></div>
+        <div id="ws-log" class="log" style="margin-top: 10px; min-height: 200px"></div>
+      </div>
+
+      <!-- Get Order Details -->
+      <div class="section">
+        <h2>4. Get Order Details</h2>
+        <input type="text" id="getOrderId" placeholder="Enter Order ID" style="width: 300px" />
+        <button onclick="getOrder()">Get Order</button>
+        <div id="get-order-result" class="log" style="margin-top: 10px; min-height: 100px"></div>
+      </div>
+
+      <!-- Queue Metrics -->
+      <div class="section">
+        <h2>5. Queue Metrics</h2>
+        <button onclick="getMetrics()">Refresh Metrics</button>
+        <button onclick="startMetricsPolling()">Auto-Refresh (1s)</button>
+        <button onclick="stopMetricsPolling()">Stop Auto-Refresh</button>
+        <div class="metrics" id="metrics-display"></div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = 'http://localhost:3000';
+      let ws = null;
+      let metricsInterval = null;
+
+      function log(elementId, message, color = '#00ff00') {
+        const el = document.getElementById(elementId);
+        const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+        el.innerHTML += `<span class="timestamp">[${timestamp}]</span><span style="color: ${color}">${message}</span>\n`;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      function clearLog(elementId) {
+        document.getElementById(elementId).innerHTML = '';
+      }
+
+      async function testHealth() {
+        clearLog('health-result');
+        log('health-result', '🔍 Sending GET /health...', '#ffff00');
+
+        const start = performance.now();
+        try {
+          const response = await fetch(`${API_BASE}/health`);
+          const data = await response.json();
+          const duration = (performance.now() - start).toFixed(2);
+
+          log('health-result', `✅ Response received in ${duration}ms`, '#00ff00');
+          log('health-result', `Status: ${response.status} ${response.statusText}`);
+          log('health-result', JSON.stringify(data, null, 2), '#00ffff');
+        } catch (error) {
+          const duration = (performance.now() - start).toFixed(2);
+          log('health-result', `❌ Error after ${duration}ms: ${error.message}`, '#ff0000');
+        }
+      }
+
+      async function createOrder() {
+        clearLog('order-result');
+        const orderData = {
+          orderType: 'market',
+          tokenIn: document.getElementById('tokenIn').value,
+          tokenOut: document.getElementById('tokenOut').value,
+          amountIn: parseFloat(document.getElementById('amountIn').value),
+          slippage: parseFloat(document.getElementById('slippage').value),
+        };
+
+        log('order-result', '🔍 Sending POST /api/orders/execute...', '#ffff00');
+        log('order-result', `Request body: ${JSON.stringify(orderData, null, 2)}`, '#888');
+
+        const start = performance.now();
+        try {
+          const response = await fetch(`${API_BASE}/api/orders/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(orderData),
+          });
+          const data = await response.json();
+          const duration = (performance.now() - start).toFixed(2);
+
+          log('order-result', `✅ Order created in ${duration}ms`, '#00ff00');
+          log('order-result', JSON.stringify(data, null, 2), '#00ffff');
+
+          // Auto-populate WebSocket field
+          if (data.orderId) {
+            document.getElementById('wsOrderId').value = data.orderId;
+            document.getElementById('getOrderId').value = data.orderId;
+            log(
+              'order-result',
+              `💡 Order ID auto-filled. Click "Connect WebSocket" to watch status updates!`,
+              '#ffff00'
+            );
+          }
+        } catch (error) {
+          const duration = (performance.now() - start).toFixed(2);
+          log('order-result', `❌ Error after ${duration}ms: ${error.message}`, '#ff0000');
+        }
+      }
+
+      async function createMultipleOrders() {
+        clearLog('order-result');
+        log('order-result', '🚀 Creating 5 concurrent orders...', '#ffff00');
+
+        const promises = [];
+        for (let i = 1; i <= 5; i++) {
+          const orderData = {
+            orderType: 'market',
+            tokenIn: 'SOL',
+            tokenOut: 'USDC',
+            amountIn: i * 0.5,
+            slippage: 0.01,
+          };
+          promises.push(
+            fetch(`${API_BASE}/api/orders/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(orderData),
+            }).then(r => r.json())
+          );
+        }
+
+        const start = performance.now();
+        try {
+          const results = await Promise.all(promises);
+          const duration = (performance.now() - start).toFixed(2);
+
+          log('order-result', `✅ All 5 orders submitted in ${duration}ms`, '#00ff00');
+          results.forEach((data, i) => {
+            log('order-result', `Order ${i + 1}: ${data.orderId}`, '#00ffff');
+          });
+        } catch (error) {
+          log('order-result', `❌ Error: ${error.message}`, '#ff0000');
+        }
+      }
+
+      function connectWebSocket() {
+        const orderId = document.getElementById('wsOrderId').value;
+        if (!orderId) {
+          alert('Please enter an Order ID');
+          return;
+        }
+
+        clearLog('ws-log');
+        log('ws-log', `🔌 Connecting to WebSocket for order: ${orderId}...`, '#ffff00');
+
+        ws = new WebSocket(`ws://localhost:3000/api/orders/${orderId}/stream`);
+
+        ws.onopen = () => {
+          log('ws-log', '✅ WebSocket connected!', '#00ff00');
+          document.getElementById('ws-status').innerHTML =
+            '<strong style="color: green;">● Connected</strong>';
+          document.getElementById('wsBtn').disabled = true;
+          document.getElementById('wsDisconnectBtn').disabled = false;
+        };
+
+        ws.onmessage = event => {
+          const data = JSON.parse(event.data);
+          const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+
+          if (data.status) {
+            log(
+              'ws-log',
+              `📊 Status: <span class="status ${data.status}">${data.status.toUpperCase()}</span>`,
+              '#00ffff'
+            );
+          }
+          log('ws-log', JSON.stringify(data, null, 2), '#00ffff');
+        };
+
+        ws.onerror = error => {
+          log('ws-log', `❌ WebSocket error: ${error}`, '#ff0000');
+        };
+
+        ws.onclose = () => {
+          log('ws-log', '🔌 WebSocket disconnected', '#ffff00');
+          document.getElementById('ws-status').innerHTML =
+            '<strong style="color: red;">● Disconnected</strong>';
+          document.getElementById('wsBtn').disabled = false;
+          document.getElementById('wsDisconnectBtn').disabled = true;
+        };
+      }
+
+      function disconnectWebSocket() {
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+      }
+
+      async function getOrder() {
+        const orderId = document.getElementById('getOrderId').value;
+        if (!orderId) {
+          alert('Please enter an Order ID');
+          return;
+        }
+
+        clearLog('get-order-result');
+        log('get-order-result', `🔍 Fetching order: ${orderId}...`, '#ffff00');
+
+        const start = performance.now();
+        try {
+          const response = await fetch(`${API_BASE}/api/orders/${orderId}`);
+          const data = await response.json();
+          const duration = (performance.now() - start).toFixed(2);
+
+          log('get-order-result', `✅ Order fetched in ${duration}ms`, '#00ff00');
+          log('get-order-result', JSON.stringify(data, null, 2), '#00ffff');
+        } catch (error) {
+          const duration = (performance.now() - start).toFixed(2);
+          log('get-order-result', `❌ Error after ${duration}ms: ${error.message}`, '#ff0000');
+        }
+      }
+
+      async function getMetrics() {
+        try {
+          const response = await fetch(`${API_BASE}/api/metrics`);
+          const data = await response.json();
+
+          const metricsDiv = document.getElementById('metrics-display');
+          metricsDiv.innerHTML = `
+                    <div class="metric-card">
+                        <div class="metric-value">${data.metrics.waiting}</div>
+                        <div class="metric-label">Waiting</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${data.metrics.active}</div>
+                        <div class="metric-label">Active</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${data.metrics.completed}</div>
+                        <div class="metric-label">Completed</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${data.metrics.failed}</div>
+                        <div class="metric-label">Failed</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">${data.metrics.delayed}</div>
+                        <div class="metric-label">Delayed</div>
+                    </div>
+                `;
+        } catch (error) {
+          console.error('Metrics error:', error);
+        }
+      }
+
+      function startMetricsPolling() {
+        if (metricsInterval) return;
+        getMetrics();
+        metricsInterval = setInterval(getMetrics, 1000);
+      }
+
+      function stopMetricsPolling() {
+        if (metricsInterval) {
+          clearInterval(metricsInterval);
+          metricsInterval = null;
+        }
+      }
+
+      // Load metrics on page load
+      window.onload = () => {
+        getMetrics();
+      };
+    </script>
+  </body>
+</html>

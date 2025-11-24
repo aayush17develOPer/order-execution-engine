@@ -1,0 +1,46 @@
+### Variables
+@baseUrl = http://localhost:3000
+@orderId = 89c04854-846e-4d16-a3b8-b6829759633d
+
+### Health Check
+GET {{baseUrl}}/health
+
+###
+
+### Create Market Order - SOL to USDC
+POST {{baseUrl}}/api/orders/execute
+Content-Type: application/json
+
+{
+  "orderType": "market",
+  "tokenIn": "SOL",
+  "tokenOut": "USDC",
+  "amountIn": 1.0,
+  "slippage": 0.01
+}
+
+###
+
+### Create Market Order - Large Amount
+POST {{baseUrl}}/api/orders/execute
+Content-Type: application/json
+
+{
+  "orderType": "market",
+  "tokenIn": "SOL",
+  "tokenOut": "USDC",
+  "amountIn": 10.0,
+  "slippage": 0.02
+}
+
+###
+
+### Get Order Details (replace with actual orderId)
+GET {{baseUrl}}/api/orders/{{orderId}}
+
+###
+
+### Get Queue Metrics
+GET {{baseUrl}}/api/metrics
+
+###
