@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { OrderExecutionService } from '../services/order-execution.service';
 import { OrderQueueService } from '../services/order-queue.service';
+import { orderEvents } from '../services/order-events.service';
 import { OrderType } from '../models/order.model';
 
 const createOrderSchema = z.object({
@@ -17,7 +18,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
   const executionService = new OrderExecutionService();
   const queueService = new OrderQueueService();
 
-  // Create and execute order
   fastify.post('/api/orders/execute', async (request, reply) => {
     try {
       const body = createOrderSchema.parse(request.body);
@@ -39,7 +39,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // WebSocket endpoint - Correct syntax for @fastify/websocket v10
+  // WebSocket endpoint using EventEmitter
   fastify.register(async function (fastify) {
     fastify.get('/api/orders/:orderId/stream', { websocket: true }, (socket, req) => {
       const { orderId } = req.params as { orderId: string };
@@ -54,58 +54,18 @@ export async function orderRoutes(fastify: FastifyInstance) {
         })
       );
 
-      // Get queue events from BullMQ
-      const queueEvents = queueService.getQueueEvents();
-
-      // Handler for job progress
-      const progressHandler = async ({ jobId, data }: any) => {
-        if (jobId === orderId) {
-          fastify.log.info({ jobId, data }, 'Sending progress update via WebSocket');
-          socket.send(
-            JSON.stringify({
-              type: 'status_update',
-              orderId: jobId,
-              data,
-              timestamp: new Date().toISOString(),
-            })
-          );
-        }
+      // Listen for order updates via EventEmitter
+      const updateHandler = (update: any) => {
+        fastify.log.info({ orderId, update }, 'Sending update via WebSocket');
+        socket.send(
+          JSON.stringify({
+            type: 'status_update',
+            ...update,
+          })
+        );
       };
 
-      // Handler for job completion
-      const completedHandler = async ({ jobId, returnvalue }: any) => {
-        if (jobId === orderId) {
-          fastify.log.info({ jobId }, 'Sending completion update via WebSocket');
-          socket.send(
-            JSON.stringify({
-              type: 'completed',
-              orderId: jobId,
-              result: returnvalue,
-              timestamp: new Date().toISOString(),
-            })
-          );
-        }
-      };
-
-      // Handler for job failure
-      const failedHandler = async ({ jobId, failedReason }: any) => {
-        if (jobId === orderId) {
-          fastify.log.error({ jobId, failedReason }, 'Sending failure update via WebSocket');
-          socket.send(
-            JSON.stringify({
-              type: 'failed',
-              orderId: jobId,
-              error: failedReason,
-              timestamp: new Date().toISOString(),
-            })
-          );
-        }
-      };
-
-      // Register event listeners
-      queueEvents.on('progress', progressHandler);
-      queueEvents.on('completed', completedHandler);
-      queueEvents.on('failed', failedHandler);
+      orderEvents.on(`order:${orderId}`, updateHandler);
 
       // Handle client messages
       socket.on('message', (message: Buffer) => {
@@ -127,9 +87,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
       // Cleanup on disconnect
       socket.on('close', () => {
         fastify.log.info({ orderId }, 'WebSocket connection closed');
-        queueEvents.off('progress', progressHandler);
-        queueEvents.off('completed', completedHandler);
-        queueEvents.off('failed', failedHandler);
+        orderEvents.off(`order:${orderId}`, updateHandler);
       });
 
       socket.on('error', (error: Error) => {
@@ -138,7 +96,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // Get order details
   fastify.get('/api/orders/:orderId', async (request, reply) => {
     const { orderId } = request.params as { orderId: string };
     const order = await executionService.getOrder(orderId);
@@ -153,7 +110,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
     return { success: true, order };
   });
 
-  // Get queue metrics
   fastify.get('/api/metrics', async () => {
     const metrics = await queueService.getMetrics();
     return {
@@ -163,7 +119,6 @@ export async function orderRoutes(fastify: FastifyInstance) {
     };
   });
 
-  // Health check
   fastify.get('/health', async () => ({
     status: 'healthy',
     timestamp: new Date().toISOString(),

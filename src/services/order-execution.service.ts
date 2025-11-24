@@ -3,11 +3,14 @@ import { redisClient } from '../config/redis';
 import {
   Order,
   OrderStatus,
-  //   OrderType,
+  // OrderType,
   CreateOrderRequest,
   StatusUpdate,
 } from '../models/order.model';
 import { DexRouterService } from './dex-router.service';
+import { orderEvents } from './order-events.service';
+import { sleep } from '../utils/helper';
+import { logger } from '../utils/logger';
 
 export class OrderExecutionService {
   private dexRouter = new DexRouterService();
@@ -96,15 +99,46 @@ export class OrderExecutionService {
 
   async processMarketOrder(order: Order): Promise<StatusUpdate[]> {
     const updates: StatusUpdate[] = [];
+
     try {
+      // Stage 1: ROUTING
+      logger.info({ orderId: order.id }, 'Stage 1: Starting DEX routing...');
       await this.updateOrderStatus(order.id, OrderStatus.ROUTING);
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.ROUTING, {
+        message: 'Fetching quotes from Raydium and Meteora...',
+      });
+
+      await sleep(800); // 800ms for routing
+
       const { bestQuote, allQuotes } = await this.dexRouter.getBestQuote(
         order.tokenIn,
         order.tokenOut,
         order.amountIn
       );
-      await this.updateOrderStatus(order.id, OrderStatus.BUILDING, { selectedDex: bestQuote.dex });
+
+      logger.info({ orderId: order.id, selectedDex: bestQuote.dex }, 'Routing complete');
+
+      // Stage 2: BUILDING
+      logger.info({ orderId: order.id }, 'Stage 2: Building transaction...');
+      await sleep(700); // 700ms for building
+      await this.updateOrderStatus(order.id, OrderStatus.BUILDING, {
+        selectedDex: bestQuote.dex,
+      });
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.BUILDING, {
+        selectedDex: bestQuote.dex,
+        message: `Building transaction on ${bestQuote.dex}...`,
+      });
+
+      // Stage 3: SUBMITTED
+      logger.info({ orderId: order.id }, 'Stage 3: Submitting to blockchain...');
+      await sleep(600); // 600ms for submission
       await this.updateOrderStatus(order.id, OrderStatus.SUBMITTED);
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.SUBMITTED, {
+        message: 'Transaction submitted to Solana network...',
+      });
+
+      // Stage 4: EXECUTION
+      logger.info({ orderId: order.id }, 'Stage 4: Executing swap...');
       const execution = await this.dexRouter.executeSwap(
         bestQuote.dex,
         order.tokenIn,
@@ -113,11 +147,23 @@ export class OrderExecutionService {
         bestQuote.amountOut,
         order.slippage
       );
+
+      // Stage 5: CONFIRMED
       await this.updateOrderStatus(order.id, OrderStatus.CONFIRMED, {
         txHash: execution.txHash,
         executionPrice: execution.executedPrice,
         amountOut: execution.amountOut,
       });
+
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.CONFIRMED, {
+        txHash: execution.txHash,
+        executionPrice: execution.executedPrice,
+        amountOut: execution.amountOut,
+        message: 'Order executed successfully!',
+      });
+
+      logger.info({ orderId: order.id, txHash: execution.txHash }, 'Order confirmed');
+
       updates.push({
         orderId: order.id,
         status: OrderStatus.CONFIRMED,
@@ -129,10 +175,17 @@ export class OrderExecutionService {
         },
       });
     } catch (error: any) {
+      logger.error({ orderId: order.id, error: error.message }, 'Order execution failed');
+
       await this.updateOrderStatus(order.id, OrderStatus.FAILED, {
         errorMessage: error.message,
         retryCount: order.retryCount + 1,
       });
+
+      orderEvents.emitOrderUpdate(order.id, OrderStatus.FAILED, {
+        error: error.message,
+      });
+
       updates.push({
         orderId: order.id,
         status: OrderStatus.FAILED,
@@ -140,6 +193,7 @@ export class OrderExecutionService {
         data: { error: error.message },
       });
     }
+
     return updates;
   }
 
