@@ -11,6 +11,9 @@ export class OrderWorker {
 
   constructor() {
     this.executionService = new OrderExecutionService();
+
+    console.log('🏗️  Initializing OrderWorker...');
+
     this.worker = new Worker<OrderJobData>(
       'order-execution',
       async (job: Job<OrderJobData>) => {
@@ -20,7 +23,6 @@ export class OrderWorker {
 
         try {
           if (orderData.orderType === OrderType.MARKET) {
-            // This will emit events during processing
             await this.executionService.processMarketOrder(orderData);
 
             logger.info({ orderId }, '✅ Worker completed order processing');
@@ -34,11 +36,13 @@ export class OrderWorker {
         }
       },
       {
-        connection: redisConnection.duplicate(),
+        connection: redisConnection, // ← Changed from redisConnection.duplicate()
         concurrency: 10,
         limiter: { max: 100, duration: 60000 },
       }
     );
+
+    console.log('✅ OrderWorker initialized and ready');
 
     this.worker.on('completed', job => {
       logger.info(

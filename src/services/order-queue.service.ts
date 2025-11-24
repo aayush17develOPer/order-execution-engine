@@ -13,11 +13,11 @@ export class OrderQueueService {
 
   constructor() {
     this.queue = new Queue<OrderJobData>('order-execution', {
-      connection: redisConnection.duplicate(),
+      connection: redisConnection, // ← Changed from redisConnection.duplicate()
     });
 
     this.queueEvents = new QueueEvents('order-execution', {
-      connection: redisConnection.duplicate(),
+      connection: redisConnection, // ← Changed from redisConnection.duplicate()
     });
   }
 

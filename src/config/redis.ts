@@ -9,6 +9,7 @@ export const redisClient = new Redis({
   lazyConnect: true,
 });
 
+// Export connection config for BullMQ
 export const redisConnection = {
   host: env.REDIS_HOST,
   port: env.REDIS_PORT,
@@ -28,5 +29,3 @@ redisClient
 redisClient.on('error', err => {
   console.error('Redis error:', err);
 });
-
-export const duplicate = () => redisClient.duplicate();
