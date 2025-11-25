@@ -58,3 +58,5 @@ export class OrderQueueService {
     return this.queueEvents;
   }
 }
+
+export const orderQueueService = new OrderQueueService();
