@@ -518,30 +518,41 @@
           const data = await response.json();
 
           const metricsDiv = document.getElementById('metrics-display');
+
           metricsDiv.innerHTML = `
-                    <div class="metric-card">
-                        <div class="metric-value">${data.metrics.waiting}</div>
-                        <div class="metric-label">Waiting</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value">${data.metrics.active}</div>
-                        <div class="metric-label">Active</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value">${data.metrics.completed}</div>
-                        <div class="metric-label">Completed</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value">${data.metrics.failed}</div>
-                        <div class="metric-label">Failed</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-value">${data.metrics.delayed}</div>
-                        <div class="metric-label">Delayed</div>
-                    </div>
-                `;
+      <div class="metric-card">
+        <div class="metric-value">${data.queue?.waiting || 0}</div>
+        <div class="metric-label">Queue Waiting</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.queue?.active || 0}</div>
+        <div class="metric-label">Queue Active</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.orders?.pending || 0}</div>
+        <div class="metric-label">Pending</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.orders?.processing || 0}</div>
+        <div class="metric-label">Processing</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.orders?.completed || 0}</div>
+        <div class="metric-label">Completed</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value" style="color: ${(data.orders?.failed || 0) > 0 ? '#dc3545' : '#007bff'}">${data.orders?.failed || 0}</div>
+        <div class="metric-label">Failed</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.orders?.total || 0}</div>
+        <div class="metric-label">Total Orders</div>
+      </div>
+    `;
         } catch (error) {
           console.error('Metrics error:', error);
+          document.getElementById('metrics-display').innerHTML =
+            '<div style="color: red; padding: 20px;">Failed to load metrics</div>';
         }
       }
 
