@@ -220,7 +220,13 @@
     </div>
 
     <script>
-      const API_BASE = 'http://localhost:3000';
+      // Use current domain instead of hardcoded localhost
+      const API_BASE = window.location.origin;
+      const WS_URL =
+        window.location.protocol === 'https:'
+          ? `wss://${window.location.host}`
+          : `ws://${window.location.host}`;
+
       let ws = null;
       let globalWs = null;
       let metricsInterval = null;
@@ -376,7 +382,8 @@
         clearLog('ws-log');
         log('ws-log', '🔌 Connecting to global order stream...', '#ffff00');
 
-        globalWs = new WebSocket(`ws://localhost:3000/api/orders/stream/all`);
+        // Use dynamic WebSocket URL based on current domain
+        globalWs = new WebSocket(`${WS_URL}/api/orders/stream/all`);
 
         globalWs.onopen = () => {
           log('ws-log', '✅ Global WebSocket connected! Listening to all orders...', '#00ff00');
