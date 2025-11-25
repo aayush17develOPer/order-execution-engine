@@ -366,37 +366,6 @@ curl https://order-execution-engine-production-f7e4.up.railway.app/api/metrics
 
 curl https://order-execution-engine-production-f7e4.up.railway.app/api/orders/YOUR_ORDER_ID
 
-## 📁 Project Structure
-
-order-execution-engine/
-├── src/
-│ ├── app.ts # Fastify server setup
-│ ├── config/
-│ │ ├── database.ts # PostgreSQL connection
-│ │ ├── redis.ts # Redis connection
-│ │ └── env.ts # Environment validation with Zod
-│ ├── models/
-│ │ └── order.model.ts # Order types and enums
-│ ├── routes/
-│ │ └── orders.route.ts # API endpoints and WebSocket
-│ ├── services/
-│ │ ├── order-execution.service.ts # Order business logic
-│ │ ├── order-queue.service.ts # BullMQ queue management
-│ │ └── order-events.service.ts # Event emitter for updates
-│ ├── workers/
-│ │ └── order.worker.ts # BullMQ worker processor
-│ └── migrations/
-│ └── setup.ts # Database schema and migrations
-├── public/
-│ └── index.html # Test dashboard UI
-├── dist/ # Compiled TypeScript output
-├── .env.example # Environment variables template
-├── .gitignore
-├── docker-compose.yml # Local PostgreSQL + Redis
-├── package.json
-├── tsconfig.json
-└── README.md
-
 ## 🔒 Environment Variables
 
 | Variable                | Description                  | Default       | Required |
