@@ -18,8 +18,8 @@ export async function runMigrations() {
         limit_price DECIMAL(20, 8),
         status VARCHAR(50) NOT NULL,
         tx_hash TEXT,
-        executed_price DECIMAL(20, 8),
-        dex VARCHAR(50),
+        execution_price DECIMAL(20, 8),
+        selected_dex VARCHAR(50),
         error_message TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()

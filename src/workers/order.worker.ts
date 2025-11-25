@@ -150,16 +150,15 @@ export class OrderWorker {
     // PHASE 4: CONFIRMED
     logger.info({ orderId }, `✅ [${shortId}] Phase 4: Transaction confirmed!`);
 
-    // Update database with execution details
     await query(
       `UPDATE orders 
-       SET status = $1, 
-           tx_hash = $2, 
-           executed_price = $3, 
-           dex = $4, 
-           amount_out = $5,
-           updated_at = NOW() 
-       WHERE id = $6`,
+   SET status = $1, 
+       tx_hash = $2, 
+       execution_price = $3,  // ← Fixed column name
+       selected_dex = $4,     // ← Also check this matches your DB
+       amount_out = $5,
+       updated_at = NOW() 
+   WHERE id = $6`,
       [
         OrderStatus.CONFIRMED,
         result.txHash,
