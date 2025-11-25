@@ -1,10 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { OrderExecutionService } from '../services/order-execution.service';
-import { OrderQueueService } from '../services/order-queue.service';
 import { orderEvents } from '../services/order-events.service';
 import { OrderType, OrderStatus } from '../models/order.model';
-
+import { orderQueueService } from '../services/order-queue.service';
+import { query } from '../config/database';
 const createOrderSchema = z.object({
   orderType: z.nativeEnum(OrderType),
   tokenIn: z.string().min(1),
@@ -171,13 +171,46 @@ export async function orderRoutes(fastify: FastifyInstance) {
     return { success: true, order };
   });
 
-  fastify.get('/api/metrics', async () => {
-    const metrics = await queueService.getMetrics();
-    return {
-      success: true,
-      metrics,
-      timestamp: new Date().toISOString(),
-    };
+  // Update metrics endpoint to include database stats
+  fastify.get('/api/metrics', async (request, reply) => {
+    try {
+      // Get queue metrics from BullMQ
+      const queueMetrics = await orderQueueService.getMetrics();
+
+      // Get actual order statistics from database
+      const orderStats = await query(`
+        SELECT 
+          status,
+          COUNT(*) as count
+        FROM orders
+        GROUP BY status
+      `);
+
+      // Convert to object with all possible statuses
+      const stats: Record<string, number> = {
+        pending: 0,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+        total: 0,
+      };
+
+      orderStats.rows.forEach((row: any) => {
+        stats[row.status] = parseInt(row.count);
+        stats.total += parseInt(row.count);
+      });
+
+      return {
+        success: true,
+        queue: queueMetrics,
+        orders: stats,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      fastify.log.error('Metrics error:', error);
+      reply.status(500);
+      return { success: false, error: error.message };
+    }
   });
 
   fastify.get('/health', async () => ({
