@@ -1,37 +1,46 @@
 import { query } from '../config/database';
-import { logger } from '../utils/logger';
 
 export async function runMigrations() {
-  try {
-    logger.info('Running database migrations...');
+  console.log('🔄 Starting database migrations...');
 
+  try {
+    // Create orders table with all required columns
+    console.log('📋 Creating orders table...');
     await query(`
       CREATE TABLE IF NOT EXISTS orders (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        order_type VARCHAR(20) NOT NULL,
-        status VARCHAR(20) NOT NULL DEFAULT 'pending',
-        token_in VARCHAR(10) NOT NULL,
-        token_out VARCHAR(10) NOT NULL,
+        id UUID PRIMARY KEY,
+        order_type VARCHAR(50) NOT NULL,
+        token_in VARCHAR(50) NOT NULL,
+        token_out VARCHAR(50) NOT NULL,
         amount_in DECIMAL(20, 8) NOT NULL,
         amount_out DECIMAL(20, 8),
-        slippage DECIMAL(5, 4) NOT NULL,
-        selected_dex VARCHAR(50),
-        execution_price DECIMAL(20, 8),
-        tx_hash VARCHAR(255),
+        slippage DECIMAL(5, 4),
+        limit_price DECIMAL(20, 8),
+        status VARCHAR(50) NOT NULL,
+        tx_hash TEXT,
+        executed_price DECIMAL(20, 8),
+        dex VARCHAR(50),
         error_message TEXT,
-        retry_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        confirmed_at TIMESTAMP
-      );
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
     `);
+    console.log('✅ Orders table created/verified');
 
-    await query(`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);`);
+    // Add indexes for performance
+    console.log('📋 Creating indexes...');
+    await query(`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)`);
+    console.log('✅ Index idx_orders_status created');
 
-    logger.info('✅ Database migrations completed successfully');
+    await query(`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC)`);
+    console.log('✅ Index idx_orders_created_at created');
+
+    await query(`CREATE INDEX IF NOT EXISTS idx_orders_tx_hash ON orders(tx_hash)`);
+    console.log('✅ Index idx_orders_tx_hash created');
+
+    console.log('✅ All database migrations completed successfully');
   } catch (error: any) {
-    logger.error({ error: error.message }, '❌ Database migration failed');
+    console.error('❌ Migration error:', error);
     throw error;
   }
 }
