@@ -154,8 +154,8 @@ export class OrderWorker {
       `UPDATE orders 
    SET status = $1, 
        tx_hash = $2, 
-       execution_price = $3,  // ← Fixed column name
-       selected_dex = $4,     // ← Also check this matches your DB
+       execution_price = $3,
+       selected_dex = $4,
        amount_out = $5,
        updated_at = NOW() 
    WHERE id = $6`,
