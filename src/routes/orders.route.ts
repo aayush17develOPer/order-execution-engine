@@ -216,10 +216,4 @@ export async function orderRoutes(fastify: FastifyInstance) {
       return { success: false, error: error.message };
     }
   });
-
-  // Health check
-  fastify.get('/health', async () => ({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-  }));
 }
