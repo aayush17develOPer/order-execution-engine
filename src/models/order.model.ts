@@ -14,8 +14,8 @@ export enum OrderStatus {
 }
 
 export enum DexType {
-  RAYDIUM = 'raydium',
-  METEORA = 'meteora',
+  RAYDIUM = 'Raydium',
+  METEORA = 'Meteora',
 }
 
 export interface Order {
