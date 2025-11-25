@@ -5,6 +5,7 @@ import { orderEvents } from '../services/order-events.service';
 import { OrderType, OrderStatus } from '../models/order.model';
 import { orderQueueService } from '../services/order-queue.service';
 import { query } from '../config/database';
+
 const createOrderSchema = z.object({
   orderType: z.nativeEnum(OrderType),
   tokenIn: z.string().min(1),
@@ -16,7 +17,9 @@ const createOrderSchema = z.object({
 
 export async function orderRoutes(fastify: FastifyInstance) {
   const executionService = new OrderExecutionService();
-  const queueService = new OrderQueueService();
+  // FIX: orderQueueService is already an instance, don't use 'new'
+  // const queueService = new orderQueueService(); ❌
+  // Just use it directly:
 
   fastify.post('/api/orders/execute', async (request, reply) => {
     try {
@@ -27,7 +30,8 @@ export async function orderRoutes(fastify: FastifyInstance) {
         message: 'Order received, queued for processing...',
       });
 
-      await queueService.addOrder(order.id, order);
+      // FIX: Use orderQueueService directly (it's already an instance)
+      await orderQueueService.addOrder(order.id, order);
 
       return {
         success: true,
@@ -171,7 +175,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
     return { success: true, order };
   });
 
-  // Update metrics endpoint to include database stats
+  // Metrics endpoint with database stats
   fastify.get('/api/metrics', async (request, reply) => {
     try {
       // Get queue metrics from BullMQ
@@ -213,6 +217,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Health check
   fastify.get('/health', async () => ({
     status: 'healthy',
     timestamp: new Date().toISOString(),
